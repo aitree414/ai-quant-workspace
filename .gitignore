@@ -11,6 +11,7 @@ venv/
 # Data files (too large for git)
 data/market/*.csv
 data/market/*.json
+data/market/*.parquet
 data/results/*.csv
 data/results/*.json
 data/signals/*.csv
