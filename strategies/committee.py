@@ -20,7 +20,7 @@ import pandas as pd
 
 from backtesting.engine import BacktestEngine, BacktestResult
 from utils.data_loader import load_single
-from .agents import MomentumAgent, ValueAgent, Signal
+from .agents import MomentumAgent, ValueAgent, ClaudeAgent, Signal
 from .agents.cio_agent import CIOAgent
 
 logging.basicConfig(
@@ -94,12 +94,14 @@ def run_committee(
     initial_capital: float = 100_000.0,
     commission: float = 0.001,
     deepseek_api_key: Optional[str] = None,
+    claude_api_key: Optional[str] = None,
+    use_claude: bool = True,
 ) -> BacktestResult:
     """Run the full investment committee pipeline.
 
     1. Load OHLCV data
-    2. Generate signals from MomentumAgent and ValueAgent
-    3. CIOAgent aggregates signals into consensus
+    2. Generate signals from MomentumAgent, ValueAgent, and ClaudeAgent
+    3. CIOAgent synthesises signals into consensus
     4. Convert consensus to position series
     5. Run backtest
     """
@@ -123,11 +125,11 @@ def run_committee(
     momentum = MomentumAgent()
     value = ValueAgent(api_key=deepseek_api_key, fallback_mode=fallback)
 
-    logger.info("--- MomentumAgent ---")
+    logger.info("--- MomentumAgent (40%%) ---")
     mom_signals = momentum.generate_signals(data)
     logger.info("  → %d signal(s)", len(mom_signals))
 
-    logger.info("--- ValueAgent ---")
+    logger.info("--- ValueAgent (30%%) ---")
     val_signals = value.generate_signals(data)
     logger.info("  → %d signal(s)", len(val_signals))
 
@@ -136,9 +138,19 @@ def run_committee(
         "value-agent": val_signals,
     }
 
+    if use_claude:
+        logger.info("--- ClaudeAgent (30%%) ---")
+        try:
+            claude = ClaudeAgent(api_key=claude_api_key, base_url="https://api.anthropic.com")
+            claude_signals = claude.generate_signals(data)
+            logger.info("  → %d signal(s)", len(claude_signals))
+            agent_signals["claude-agent"] = claude_signals
+        except Exception as exc:
+            logger.error("ClaudeAgent failed: %s — proceeding without it", exc)
+
     # --- Step 3: CIO consensus ---
     cio = CIOAgent()
-    consensus = cio.aggregate(agent_signals, data.index, symbol=ticker)
+    consensus = cio.synthesise(agent_signals, data.index, symbol=ticker)
     _fill_prices(consensus, data)
     logger.info("--- CIO ---")
     logger.info("  → %d consensus signal(s)", len(consensus))
@@ -175,6 +187,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
     parser.add_argument("--capital", type=float, default=100_000.0, help="Initial capital")
     parser.add_argument("--commission", type=float, default=0.001, help="Commission rate")
+    parser.add_argument("--no-claude", action="store_true", help="Disable ClaudeAgent")
+    parser.add_argument(
+        "--claude-api-key", default=None,
+        help="Anthropic API key (default: ANTHROPIC_API_KEY env var)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -186,6 +203,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         fallback=args.fallback,
         initial_capital=args.capital,
         commission=args.commission,
+        use_claude=not args.no_claude,
+        claude_api_key=args.claude_api_key,
     )
 
     if args.json:

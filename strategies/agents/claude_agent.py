@@ -82,6 +82,7 @@ class ClaudeAgent(BaseAgent):
         name: str = "claude-agent",
         model: str = "claude-opus-4-7",
         api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
         system_prompt: Optional[str] = None,
         max_data_rows: int = 100,
         confidence_threshold: float = 0.0,
@@ -99,7 +100,9 @@ class ClaudeAgent(BaseAgent):
                 "Anthropic API key required — set ANTHROPIC_API_KEY "
                 "environment variable or pass api_key=..."
             )
-        self.client = anthropic.Anthropic(api_key=key)
+        # Explicit base_url overrides ANTHROPIC_BASE_URL env var if set
+        url = base_url or os.getenv("ANTHROPIC_BASE_URL") or "https://api.anthropic.com"
+        self.client = anthropic.Anthropic(api_key=key, base_url=url)
         self.system_prompt = system_prompt or _DEFAULT_SYSTEM_PROMPT
 
     # ------------------------------------------------------------------

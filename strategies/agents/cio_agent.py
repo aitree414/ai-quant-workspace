@@ -33,8 +33,9 @@ logger = logging.getLogger(__name__)
 
 # Default weight table: agent name → weight
 _DEFAULT_WEIGHTS: dict[str, float] = {
-    "momentum-agent": 0.60,
-    "value-agent": 0.40,
+    "momentum-agent": 0.40,
+    "value-agent": 0.30,
+    "claude-agent": 0.30,
 }
 
 
@@ -69,7 +70,7 @@ class CIOAgent:
     # Public API
     # ------------------------------------------------------------------
 
-    def aggregate(
+    def synthesise(
         self,
         agent_signals: dict[str, list[Signal]],
         data_index: pd.Index,
