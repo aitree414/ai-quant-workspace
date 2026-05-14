@@ -2,6 +2,16 @@
 
 ## 當前進行中
 
+### [TASK-002] 投資委員會系統 (Phase 2)
+- **狀態**：🟢 已完成
+- **負責**：Claude Code 實作
+- **完成內容**：
+  - `strategies/agents/momentum_agent.py` — 動量策略（RSI + MACD + SMA 技術分析）
+  - `strategies/agents/value_agent.py` — AI 價值投資（DeepSeek API / fallback 規則模式）
+  - `strategies/agents/cio_agent.py` — CIO 加權共識決策引擎
+  - `strategies/committee.py` — 投資委員會主程式 + CLI + 回測整合
+  - `run_committee.py` — 快速啟動腳本
+
 ### [TASK-001] 建立回測引擎基礎架構
 - **狀態**：🟢 已完成
 - **負責**：Manus 設計 → Claude Code 實作
