@@ -20,7 +20,14 @@ import pandas as pd
 
 from backtesting.engine import BacktestEngine, BacktestResult
 from utils.data_loader import load_single
-from .agents import MomentumAgent, ValueAgent, ClaudeAgent, Signal
+from .agents import (
+    MomentumAgent,
+    ValueAgent,
+    ClaudeAgent,
+    SentimentAgent,
+    MacroAgent,
+    Signal,
+)
 from .agents.cio_agent import CIOAgent
 
 logging.basicConfig(
@@ -96,11 +103,13 @@ def run_committee(
     deepseek_api_key: Optional[str] = None,
     claude_api_key: Optional[str] = None,
     use_claude: bool = True,
+    use_macro: bool = True,
+    use_sentiment: bool = True,
 ) -> BacktestResult:
     """Run the full investment committee pipeline.
 
     1. Load OHLCV data
-    2. Generate signals from MomentumAgent, ValueAgent, and ClaudeAgent
+    2. Generate signals from 5 Agents (Momentum, Value, Claude, Sentiment, Macro)
     3. CIOAgent synthesises signals into consensus
     4. Convert consensus to position series
     5. Run backtest
@@ -125,11 +134,11 @@ def run_committee(
     momentum = MomentumAgent()
     value = ValueAgent(api_key=deepseek_api_key, fallback_mode=fallback)
 
-    logger.info("--- MomentumAgent (40%%) ---")
+    logger.info("--- MomentumAgent (30%%) ---")
     mom_signals = momentum.generate_signals(data)
     logger.info("  → %d signal(s)", len(mom_signals))
 
-    logger.info("--- ValueAgent (30%%) ---")
+    logger.info("--- ValueAgent (25%%) ---")
     val_signals = value.generate_signals(data)
     logger.info("  → %d signal(s)", len(val_signals))
 
@@ -138,8 +147,22 @@ def run_committee(
         "value-agent": val_signals,
     }
 
+    if use_sentiment:
+        logger.info("--- SentimentAgent (15%%) ---")
+        sentiment = SentimentAgent(api_key=deepseek_api_key, fallback_mode=fallback)
+        sent_signals = sentiment.generate_signals(data)
+        logger.info("  → %d signal(s)", len(sent_signals))
+        agent_signals["sentiment-agent"] = sent_signals
+
+    if use_macro:
+        logger.info("--- MacroAgent (10%%) ---")
+        macro = MacroAgent(api_key=deepseek_api_key, fallback_mode=fallback)
+        macro_signals = macro.generate_signals(data)
+        logger.info("  → %d signal(s)", len(macro_signals))
+        agent_signals["macro-agent"] = macro_signals
+
     if use_claude:
-        logger.info("--- ClaudeAgent (30%%) ---")
+        logger.info("--- ClaudeAgent (20%%) ---")
         try:
             claude = ClaudeAgent(api_key=claude_api_key, base_url="https://api.anthropic.com")
             claude_signals = claude.generate_signals(data)
@@ -149,7 +172,16 @@ def run_committee(
             logger.error("ClaudeAgent failed: %s — proceeding without it", exc)
 
     # --- Step 3: CIO consensus ---
-    cio = CIOAgent()
+    # Custom weights for the 5-agent committee
+    weights = {
+        "momentum-agent": 0.30,
+        "value-agent": 0.25,
+        "claude-agent": 0.20,
+        "sentiment-agent": 0.15,
+        "macro-agent": 0.10,
+    }
+
+    cio = CIOAgent(weights=weights)
     consensus = cio.synthesise(agent_signals, data.index, symbol=ticker)
     _fill_prices(consensus, data)
     logger.info("--- CIO ---")
@@ -188,6 +220,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--capital", type=float, default=100_000.0, help="Initial capital")
     parser.add_argument("--commission", type=float, default=0.001, help="Commission rate")
     parser.add_argument("--no-claude", action="store_true", help="Disable ClaudeAgent")
+    parser.add_argument("--no-macro", action="store_true", help="Disable MacroAgent")
+    parser.add_argument("--no-sentiment", action="store_true", help="Disable SentimentAgent")
     parser.add_argument(
         "--claude-api-key", default=None,
         help="Anthropic API key (default: ANTHROPIC_API_KEY env var)",
@@ -204,6 +238,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         initial_capital=args.capital,
         commission=args.commission,
         use_claude=not args.no_claude,
+        use_macro=not args.no_macro,
+        use_sentiment=not args.no_sentiment,
         claude_api_key=args.claude_api_key,
     )
 
