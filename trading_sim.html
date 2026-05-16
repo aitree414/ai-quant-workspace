@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 交易模擬器 — 40萬 → 最大獲利</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #0a0e17;
+  color: #e0e6f0;
+  height: 100vh; overflow: hidden;
+}
+.app { display:grid; grid-template-columns:1fr 320px; height:100vh; }
+
+/* ----- left panel ----- */
+.main { padding:16px 20px; overflow-y:auto; display:flex; flex-direction:column; gap:14px; }
+
+/* header */
+.header { display:flex; justify-content:space-between; align-items:center; padding-bottom:10px; border-bottom:1px solid #1e2a3a; }
+.header h1 { font-size:20px; background:linear-gradient(135deg,#00d4aa,#00a8ff); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.account-info { display:flex; gap:24px; font-size:13px; }
+.account-info span { color:#8899aa; }
+.account-info strong { color:#e0e6f0; }
+
+/* portfolio cards */
+.portfolio-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.card {
+  background:#121a2a; border-radius:10px; padding:12px 14px;
+  border:1px solid #1e2a3a; position:relative;
+}
+.card .label { font-size:11px; color:#667; text-transform:uppercase; letter-spacing:.5px; }
+.card .value { font-size:20px; font-weight:700; margin-top:4px; font-variant-numeric:tabular-nums; }
+.card .sub { font-size:11px; margin-top:2px; }
+.green { color:#00d4aa; }
+.red { color:#ff4757; }
+.blue { color:#00a8ff; }
+.gold { color:#ffb700; }
+
+/* chart placeholder */
+.chart-box {
+  background:#121a2a; border-radius:10px; border:1px solid #1e2a3a;
+  padding:14px; flex:1; min-height:180px; position:relative;
+}
+.chart-box .label { font-size:11px; color:#667; margin-bottom:8px; }
+#equityChart { width:100%; height:calc(100% - 24px); }
+
+/* market ticker */
+.ticker { display:flex; gap:16px; font-size:12px; padding:6px 0; }
+.ticker-item { display:flex; gap:6px; }
+.ticker-item .sym { color:#8899aa; }
+.ticker-item .pr { font-weight:600; }
+.ticker-item .ch { font-size:11px; }
+
+/* ---- right panel ---- */
+.sidebar {
+  background:#0e1525; border-left:1px solid #1e2a3a;
+  display:flex; flex-direction:column; overflow:hidden;
+}
+.tab-bar { display:flex; border-bottom:1px solid #1e2a3a; }
+.tab-btn {
+  flex:1; padding:10px; background:transparent; border:none; color:#667;
+  font-size:12px; cursor:pointer; transition:.2s;
+}
+.tab-btn.active { color:#00d4aa; border-bottom:2px solid #00d4aa; background:#121a2a33; }
+.tab-content { flex:1; overflow-y:auto; padding:12px; display:none; }
+.tab-content.active { display:block; }
+
+/* order form */
+.form-group { margin-bottom:10px; }
+.form-group label { display:block; font-size:11px; color:#8899aa; margin-bottom:3px; }
+.form-group input, .form-group select {
+  width:100%; padding:8px 10px; background:#0a0e17; border:1px solid #1e2a3a;
+  border-radius:6px; color:#e0e6f0; font-size:13px;
+}
+.form-group input:focus { outline:none; border-color:#00a8ff; }
+.btn {
+  width:100%; padding:10px; border:none; border-radius:6px;
+  font-weight:600; font-size:13px; cursor:pointer; transition:.2s;
+}
+.btn-buy { background:#00d4aa; color:#0a0e17; }
+.btn-buy:hover { background:#00e8bb; }
+.btn-sell { background:#ff4757; color:#fff; }
+.btn-sell:hover { background:#ff5f6f; }
+.btn-muted { background:#1e2a3a; color:#8899aa; }
+.btn-muted:hover { background:#2a3a4a; color:#e0e6f0; }
+.btn:disabled { opacity:.35; cursor:not-allowed; }
+.leverage-row { display:flex; gap:6px; margin-bottom:10px; }
+.leverage-btn {
+  flex:1; padding:6px; background:#121a2a; border:1px solid #1e2a3a;
+  border-radius:4px; color:#8899aa; font-size:11px; cursor:pointer; text-align:center;
+}
+.leverage-btn.active { border-color:#00d4aa; color:#00d4aa; }
+
+/* trade log */
+.trade-log { font-size:11px; }
+.trade-item {
+  padding:8px 0; border-bottom:1px solid #1a2535;
+  display:grid; grid-template-columns:60px 1fr auto; gap:6px;
+}
+.trade-item .ts { color:#667; }
+.trade-item .detail { color:#ccd; }
+.trade-item .pl { font-weight:600; text-align:right; }
+
+/* holdings table */
+.holding-row {
+  display:grid; grid-template-columns:1fr 60px 60px auto;
+  gap:6px; padding:6px 0; font-size:12px; border-bottom:1px solid #1a2535;
+}
+.holding-row.header { color:#667; font-size:10px; text-transform:uppercase; }
+
+/* product selector */
+.product-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:12px; }
+.product-card {
+  padding:10px; background:#121a2a; border:2px solid transparent; border-radius:8px;
+  cursor:pointer; text-align:center; transition:.2s;
+}
+.product-card:hover { border-color:#1e2a3a; }
+.product-card.active { border-color:#00d4aa; }
+.product-card .name { font-size:13px; font-weight:600; }
+.product-card .desc { font-size:10px; color:#667; margin-top:2px; }
+.product-card .maxlev { font-size:10px; color:#ffb700; margin-top:2px; }
+
+/* ----- scrollbar ----- */
+::-webkit-scrollbar { width:4px; }
+::-webkit-scrollbar-track { background:transparent; }
+::-webkit-scrollbar-thumb { background:#1e2a3a; border-radius:2px; }
+
+/* responsive */
+@media (max-width:768px) {
+  .app { grid-template-columns:1fr; grid-template-rows:1fr auto; }
+  .sidebar { border-left:none; border-top:1px solid #1e2a3a; max-height:50vh; }
+  .portfolio-grid { grid-template-columns:1fr 1fr; }
+}
+
+/* notification */
+.toast {
+  position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+  padding:10px 24px; border-radius:8px; font-size:13px; z-index:999;
+  background:#121a2a; border:1px solid #1e2a3a; color:#e0e6f0;
+  opacity:0; transition:opacity .3s; pointer-events:none;
+}
+.toast.show { opacity:1; }
+.toast.success { border-color:#00d4aa; }
+.toast.error { border-color:#ff4757; }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- main -->
+  <div class="main">
+    <div class="header">
+      <h1>⚡ AI 交易模擬器</h1>
+      <div class="account-info">
+        <span>總權益 <strong id="equityVal">400,000</strong></span>
+        <span>可用 <strong id="cashVal" class="green">400,000</strong></span>
+        <span>損益 <strong id="pnlVal">0</strong></span>
+        <span>報酬率 <strong id="retVal">0.00%</strong></span>
+      </div>
+    </div>
+    <div class="ticker" id="tickerBar"></div>
+    <div class="portfolio-grid">
+      <div class="card"><div class="label">總權益</div><div class="value blue" id="cardEquity">400,000</div><div class="sub" id="cardEquitySub">初始 400,000</div></div>
+      <div class="card"><div class="label">可用現金</div><div class="value green" id="cardCash">400,000</div><div class="sub" id="cardCashSub">—</div></div>
+      <div class="card"><div class="label">未實現損益</div><div class="value" id="cardUnreal">0</div><div class="sub" id="cardUnrealSub">—</div></div>
+      <div class="card"><div class="label">已實現損益</div><div class="value gold" id="cardReal">0</div><div class="sub" id="cardRealSub">—</div></div>
+    </div>
+    <div class="chart-box">
+      <div class="label">權益曲線</div>
+      <canvas id="equityChart"></canvas>
+    </div>
+    <div class="card" style="flex:1; min-height:100px;">
+      <div class="label" style="margin-bottom:6px;">📋 交易紀錄</div>
+      <div id="tradeLog" style="font-size:12px; max-height:200px; overflow-y:auto;">
+        <div style="color:#667; text-align:center; padding:20px;">尚無交易</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- sidebar -->
+  <div class="sidebar">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="trade">交易</button>
+      <button class="tab-btn" data-tab="positions">持倉</button>
+      <button class="tab-btn" data-tab="info">說明</button>
+    </div>
+    <div class="tab-content active" id="tabTrade">
+      <div class="product-grid" id="productGrid">
+        <div class="product-card active" data-idx="0"><div class="name">2330 台積電</div><div class="desc">現股</div><div class="maxlev">槓桿 1×</div></div>
+        <div class="product-card" data-idx="1"><div class="name">2330 台積電</div><div class="desc">融資</div><div class="maxlev">槓桿 2.5×</div></div>
+        <div class="product-card" data-idx="2"><div class="name">台指期 TX</div><div class="desc">指數期貨</div><div class="maxlev">槓桿 ~10×</div></div>
+        <div class="product-card" data-idx="3"><div class="name">小型台指 MTX</div><div class="desc">小台期貨</div><div class="maxlev">槓桿 ~10×</div></div>
+      </div>
+      <div id="orderPanel"></div>
+    </div>
+    <div class="tab-content" id="tabPositions">
+      <div class="holding-row header"><span>商品</span><span>數量</span><span>成本</span><span>損益</span></div>
+      <div id="holdingsList"><div style="color:#667;text-align:center;padding:20px;font-size:12px;">無持倉</div></div>
+    </div>
+    <div class="tab-content" id="tabInfo">
+      <div style="font-size:12px; line-height:1.8; color:#8899aa;">
+        <p><strong style="color:#e0e6f0;">🎯 目標</strong><br>40萬 → 最短時間賺最多</p>
+        <p style="margin-top:10px;"><strong style="color:#e0e6f0;">📊 商品</strong></p>
+        <ul style="padding-left:16px;">
+          <li><strong style="color:#00d4aa;">現股</strong> — 1倍，無槓桿</li>
+          <li><strong style="color:#00d4aa;">融資</strong> — 最高 2.5 倍槓桿</li>
+          <li><strong style="color:#00d4aa;">台指期 TX</strong> — 1點=NT$200，保證金約NT$16.7萬</li>
+          <li><strong style="color:#00d4aa;">小型台指 MTX</strong> — 1點=NT$50，保證金約NT$4.2萬</li>
+        </ul>
+        <p style="margin-top:10px;"><strong style="color:#e0e6f0;">⏱ 模擬速度</strong><br>每 2 秒 = 1 交易日，價格隨機漫步</p>
+        <p style="margin-top:10px;"><strong style="color:#ffb700;">⚠️ 風險警示</strong><br>期貨槓桿雙面刃，可能歸零。</p>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ====== 商品設定 ======
+const PRODUCTS = [
+  { name:'2330 台積電',   type:'stock',   ticker:'2330.TW', price:780,  maxLever:1,   margin:1,    desc:'現股 1×' },
+  { name:'2330 融資',     type:'margin',  ticker:'2330.TW', price:780,  maxLever:2.5, margin:0.4,  desc:'融資 2.5×' },
+  { name:'台指期 TX',     type:'future',  ticker:'TX',      price:21000,maxLever:10,  margin:0.1,  desc:'大台 1點=$200' },
+  { name:'小型台指 MTX',  type:'future',  ticker:'MTX',     price:21000,maxLever:10,  margin:0.1,  desc:'小台 1點=$50' },
+];
+
+// ====== 玩家狀態 ======
+let state = {
+  cash: 400000,
+  initial: 400000,
+  positions: [],   // {productIdx, qty, entryPrice, marginUsed}
+  trades: [],
+  equityHistory: [400000],
+  day: 0,
+  prices: PRODUCTS.map(p => p.price),
+};
+
+let selectedProduct = 0;
+let chartRef = null;
+
+// DOM refs
+const $ = id => document.getElementById(id);
+
+// ====== 價格模擬 (隨機漫步 + 趨勢) ======
+function stepPrices() {
+  state.day++;
+  for (let i = 0; i < state.prices.length; i++) {
+    const p = state.prices[i];
+    const prod = PRODUCTS[i];
+    // 台積電 daily volatility ~1.8%
+    let vol = prod.type === 'future' ? 0.012 : 0.018;
+    let drift = 0.0002; // 微偏多
+    if (i >= 2) drift = 0.0003; // 期貨略波動大
+    const ret = drift + vol * (Math.random() - 0.48);
+    state.prices[i] = Math.max(p * (1 + ret), prod.price * 0.7);
+  }
+  updateUI();
+  updateChart();
+  checkMarginCalls();
+}
+
+// ====== 保證金追繳 ======
+function checkMarginCalls() {
+  for (let pos of state.positions) {
+    const prod = PRODUCTS[pos.productIdx];
+    const curPrice = state.prices[pos.productIdx];
+    let pnl = 0;
+    if (prod.type === 'future') {
+      const multiplier = prod.ticker === 'TX' ? 200 : 50;
+      pnl = (curPrice - pos.entryPrice) * multiplier * pos.qty;
+    } else {
+      pnl = (curPrice - pos.entryPrice) * pos.qty;
+    }
+    const equity = state.cash + pnl + getUnrealizedPnL() - getTotalMarginUsed();
+    const totalValue = getPositionValue(pos);
+    if (totalValue > 0 && (equity / totalValue) < 0.05) {
+      // forced liquidation
+      liquidatePosition(pos, curPrice);
+      addToast(`⚠️ 保證金不足！強制平倉 ${prod.name}`, 'error');
+    }
+  }
+}
+
+function getPositionValue(pos) {
+  const prod = PRODUCTS[pos.productIdx];
+  const curPrice = state.prices[pos.productIdx];
+  if (prod.type === 'future') {
+    const multiplier = prod.ticker === 'TX' ? 200 : 50;
+    return curPrice * multiplier * pos.qty;
+  }
+  return curPrice * pos.qty;
+}
+
+function getTotalMarginUsed() {
+  return state.positions.reduce((s, p) => s + p.marginUsed, 0);
+}
+
+function getUnrealizedPnL() {
+  return state.positions.reduce((s, pos) => {
+    const prod = PRODUCTS[pos.productIdx];
+    const curPrice = state.prices[pos.productIdx];
+    if (prod.type === 'future') {
+      const m = prod.ticker === 'TX' ? 200 : 50;
+      return s + (curPrice - pos.entryPrice) * m * pos.qty;
+    }
+    return s + (curPrice - pos.entryPrice) * pos.qty;
+  }, 0);
+}
+
+function getTotalEquity() {
+  return state.cash + getUnrealizedPnL();
+}
+
+function liquidatePosition(pos, price) {
+  const prod = PRODUCTS[pos.productIdx];
+  let pnl;
+  if (prod.type === 'future') {
+    const m = prod.ticker === 'TX' ? 200 : 50;
+    pnl = (price - pos.entryPrice) * m * pos.qty;
+  } else {
+    pnl = (price - pos.entryPrice) * pos.qty;
+  }
+  state.cash += (prod.type === 'future' ? pos.marginUsed + pnl : (price * pos.qty) - (1 - prod.margin) * pos.entryPrice * pos.qty);
+  state.positions = state.positions.filter(p => p !== pos);
+  state.trades.unshift({
+    time: `Day ${state.day}`, productIdx: pos.productIdx, side: '強制平倉', qty: pos.qty, price, pnl,
+  });
+  addTradeToLog(state.trades[0]);
+  updateUI();
+}
+
+// ====== 下單 ======
+function placeOrder(side, qty) {
+  qty = parseInt(qty);
+  if (!qty || qty <= 0) return addToast('請輸入有效數量', 'error');
+
+  const prod = PRODUCTS[selectedProduct];
+  const price = state.prices[selectedProduct];
+
+  if (side === 'buy') {
+    // Check margin
+    let required;
+    if (prod.type === 'future') {
+      const multiplier = prod.ticker === 'TX' ? 200 : 50;
+      required = price * multiplier * qty * prod.margin;
+    } else {
+      required = price * qty * prod.margin;
+    }
+    if (required > state.cash) {
+      return addToast(`保證金不足！需要 NT$${required.toLocaleString()}，可用 NT$${state.cash.toLocaleString()}`, 'error');
+    }
+    state.cash -= required;
+    state.positions.push({
+      productIdx: selectedProduct, qty, entryPrice: price, marginUsed: required,
+    });
+    state.trades.unshift({
+      time: `Day ${state.day}`, productIdx: selectedProduct,
+      side: 'BUY', qty, price, pnl: 0,
+    });
+    addToast(`✅ 買入 ${prod.name} × ${qty} @ ${price.toLocaleString()}`, 'success');
+  } else {
+    // sell / close
+    const existing = state.positions.find(p => p.productIdx === selectedProduct && p.qty > 0);
+    if (!existing) return addToast('無此商品持倉', 'error');
+    const closeQty = Math.min(qty, existing.qty);
+    let pnl;
+    if (prod.type === 'future') {
+      const m = prod.ticker === 'TX' ? 200 : 50;
+      pnl = (price - existing.entryPrice) * m * closeQty;
+    } else {
+      pnl = (price - existing.entryPrice) * closeQty;
+    }
+    const returnCash = prod.type === 'future'
+      ? existing.marginUsed * (closeQty / existing.qty) + pnl
+      : price * closeQty * prod.margin + (price - existing.entryPrice) * closeQty * (1 - prod.margin);
+
+    state.cash += returnCash;
+    existing.qty -= closeQty;
+    existing.marginUsed *= (existing.qty / (existing.qty + closeQty)) || 0;
+    if (existing.qty <= 0) state.positions = state.positions.filter(p => p !== existing);
+
+    state.trades.unshift({
+      time: `Day ${state.day}`, productIdx: selectedProduct,
+      side: 'SELL', qty: closeQty, price, pnl,
+    });
+    addToast(`💰 賣出 ${prod.name} × ${closeQty} @ ${price.toLocaleString()} 損益 ${pnl >= 0 ? '+' : ''}${pnl.toLocaleString()}`, pnl >= 0 ? 'success' : 'error');
+  }
+
+  addTradeToLog(state.trades[0]);
+  updateUI();
+}
+
+// ====== UI 更新 ======
+function updateUI() {
+  const equity = getTotalEquity();
+  const unrealPnl = getUnrealizedPnL();
+  const realizedPnl = state.trades.reduce((s, t) => s + (t.pnl || 0), 0);
+  const totalPnl = unrealPnl + realizedPnl;
+  const ret = ((equity - state.initial) / state.initial) * 100;
+
+  const fmt = n => Math.round(n).toLocaleString();
+  const fmt2 = n => (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+
+  $('equityVal').textContent = fmt(equity);
+  $('cashVal').textContent = fmt(state.cash);
+  $('pnlVal').textContent = (totalPnl >= 0 ? '+' : '') + fmt(totalPnl);
+  $('pnlVal').style.color = totalPnl >= 0 ? '#00d4aa' : '#ff4757';
+  $('retVal').textContent = fmt2(ret);
+  $('retVal').style.color = ret >= 0 ? '#00d4aa' : '#ff4757';
+
+  $('cardEquity').textContent = fmt(equity);
+  $('cardEquitySub').textContent = ret >= 0 ? `+${ret.toFixed(2)}%` : `${ret.toFixed(2)}%`;
+  $('cardCash').textContent = fmt(state.cash);
+  $('cardUnreal').textContent = (unrealPnl >= 0 ? '+' : '') + fmt(unrealPnl);
+  $('cardUnreal').style.color = unrealPnl >= 0 ? '#00d4aa' : '#ff4757';
+  $('cardReal').textContent = (realizedPnl >= 0 ? '+' : '') + fmt(realizedPnl);
+  $('cardReal').style.color = realizedPnl >= 0 ? '#ffb700' : '#ff4757';
+
+  // ticker
+  const tickerHtml = PRODUCTS.map((p, i) => {
+    const ch = ((state.prices[i] - p.price) / p.price) * 100;
+    const color = ch >= 0 ? '#00d4aa' : '#ff4757';
+    return `<div class="ticker-item"><span class="sym">${p.name}</span><span class="pr">${Math.round(state.prices[i]).toLocaleString()}</span><span class="ch" style="color:${color}">${ch >= 0 ? '+' : ''}${ch.toFixed(2)}%</span></div>`;
+  }).join('');
+  $('tickerBar').innerHTML = tickerHtml;
+
+  // holdings
+  updateHoldingsList();
+
+  // order panel
+  renderOrderPanel();
+
+  // equity history
+  state.equityHistory.push(equity);
+}
+
+function renderOrderPanel() {
+  const prod = PRODUCTS[selectedProduct];
+  const price = state.prices[selectedProduct];
+  const maxLever = prod.maxLever;
+
+  let orderHtml;
+  if (prod.type === 'future') {
+    const multiplier = prod.ticker === 'TX' ? 200 : 50;
+    const marginPerUnit = price * multiplier * prod.margin;
+    const maxQty = Math.floor(state.cash / marginPerUnit);
+    orderHtml = `
+      <div style="font-size:20px;font-weight:700;text-align:center;padding:6px 0;">
+        ${Math.round(price).toLocaleString()}
+        <span style="font-size:12px;color:#667;font-weight:400;"> ${prod.name}</span>
+      </div>
+      <div class="form-group">
+        <label>${prod.ticker === 'TX' ? '每口保證金' : '每口保證金'}</label>
+        <input type="text" value="NT$ ${Math.round(marginPerUnit).toLocaleString()}" disabled>
+      </div>
+      <div class="form-group">
+        <label>數量 (口)</label>
+        <input type="number" id="orderQty" min="1" max="${Math.max(maxQty, 1)}" value="1" step="1">
+      </div>
+      <div style="color:#667;font-size:11px;margin-bottom:8px;">可用保證金: NT$ ${Math.round(state.cash).toLocaleString()} / 最多 ${Math.max(maxQty, 0)} 口</div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-buy" onclick="placeOrder('buy', document.getElementById('orderQty').value)" ${maxQty <= 0 ? 'disabled' : ''}>📈 買進多單</button>
+        <button class="btn btn-sell" onclick="placeOrder('sell', document.getElementById('orderQty').value)">📉 賣出平倉</button>
+      </div>
+    `;
+  } else {
+    const sharePrice = price;
+    const marginPerShare = sharePrice * prod.margin;
+    const maxShares = Math.floor(state.cash / marginPerShare);
+    orderHtml = `
+      <div style="font-size:20px;font-weight:700;text-align:center;padding:6px 0;">
+        ${Math.round(price).toLocaleString()}
+        <span style="font-size:12px;color:#667;font-weight:400;"> ${prod.name}</span>
+      </div>
+      <div style="text-align:center;font-size:11px;color:#8899aa;margin-bottom:6px;">
+        ${prod.type === 'margin' ? '融資自備 40%，券商融資 60%' : '現股 100% 自有資金'}
+      </div>
+      <div class="form-group">
+        <label>數量 (股)</label>
+        <input type="number" id="orderQty" min="1" max="${Math.max(maxShares, 1)}" value="1000" step="100">
+      </div>
+      <div style="color:#667;font-size:11px;margin-bottom:8px;">
+        需資金: NT$ <span id="requiredDisplay">${Math.round(sharePrice * 1000 * prod.margin).toLocaleString()}</span>
+        &nbsp;|&nbsp; 可用: NT$ ${Math.round(state.cash).toLocaleString()}
+        &nbsp;|&nbsp; 最多 ${Math.max(maxShares, 0)} 股
+      </div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-buy" onclick="placeOrder('buy', document.getElementById('orderQty').value)" ${maxShares <= 0 ? 'disabled' : ''}>📈 買進</button>
+        <button class="btn btn-sell" onclick="placeOrder('sell', document.getElementById('orderQty').value)">📉 賣出</button>
+      </div>
+    `;
+  }
+  $('orderPanel').innerHTML = orderHtml;
+
+  // live update required display for stocks
+  const qtyInput = document.getElementById('orderQty');
+  if (qtyInput) {
+    qtyInput.addEventListener('input', function() {
+      const q = parseInt(this.value) || 0;
+      const req = document.getElementById('requiredDisplay');
+      if (req) req.textContent = Math.round(price * q * prod.margin).toLocaleString();
+    });
+  }
+}
+
+function updateHoldingsList() {
+  if (state.positions.length === 0) {
+    $('holdingsList').innerHTML = '<div style="color:#667;text-align:center;padding:20px;font-size:12px;">無持倉</div>';
+    return;
+  }
+  const html = state.positions.map(pos => {
+    const prod = PRODUCTS[pos.productIdx];
+    const curPrice = state.prices[pos.productIdx];
+    let pnl, pnlPct;
+    if (prod.type === 'future') {
+      const m = prod.ticker === 'TX' ? 200 : 50;
+      pnl = (curPrice - pos.entryPrice) * m * pos.qty;
+      pnlPct = (pnl / pos.marginUsed) * 100;
+    } else {
+      pnl = (curPrice - pos.entryPrice) * pos.qty;
+      pnlPct = (pnl / (pos.entryPrice * pos.qty * prod.margin)) * 100;
+    }
+    const color = pnl >= 0 ? '#00d4aa' : '#ff4757';
+    return `<div class="holding-row">
+      <span>${prod.name}</span>
+      <span>${pos.qty}</span>
+      <span>${Math.round(pos.entryPrice).toLocaleString()}</span>
+      <span style="color:${color}">${pnl >= 0 ? '+' : ''}${Math.round(pnl).toLocaleString()} (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)</span>
+    </div>`;
+  }).join('');
+  $('holdingsList').innerHTML = html;
+}
+
+function addTradeToLog(trade) {
+  const container = $('tradeLog');
+  const prod = PRODUCTS[trade.productIdx];
+  const pnl = trade.pnl || 0;
+  const color = pnl >= 0 ? '#00d4aa' : '#ff4757';
+  const pnlStr = pnl !== 0 ? (pnl >= 0 ? '+' : '') + Math.round(pnl).toLocaleString() : '—';
+  const entry = document.createElement('div');
+  entry.className = 'trade-item';
+  entry.innerHTML = `<span class="ts">${trade.time}</span><span class="detail">${trade.side} ${prod.name} ×${trade.qty} @${Math.round(trade.price).toLocaleString()}</span><span class="pl" style="color:${color}">${pnlStr}</span>`;
+  container.insertBefore(entry, container.firstChild);
+  if (state.trades.length === 1) container.innerHTML = '';
+}
+
+// ====== 圖表 ======
+function updateChart() {
+  const canvas = $('equityChart');
+  const ctx = canvas.getContext('2d');
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = canvas.parentElement.clientWidth;
+  canvas.height = canvas.parentElement.clientHeight - 24;
+
+  const w = canvas.width, h = canvas.height;
+  const data = state.equityHistory;
+  if (data.length < 2) return;
+
+  ctx.clearRect(0, 0, w, h);
+  const min = Math.min(...data) * 0.95;
+  const max = Math.max(...data) * 1.05;
+  const range = max - min || 1;
+
+  // grid lines
+  ctx.strokeStyle = '#1a2535';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i < 5; i++) {
+    const y = (h / 5) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+  }
+
+  // line
+  ctx.beginPath();
+  ctx.strokeStyle = (data[data.length - 1] >= data[0]) ? '#00d4aa' : '#ff4757';
+  ctx.lineWidth = 2;
+  for (let i = 0; i < data.length; i++) {
+    const x = (i / (data.length - 1)) * w;
+    const y = h - ((data[i] - min) / range) * (h - 16) - 8;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // fill
+  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, (data[data.length - 1] >= data[0]) ? 'rgba(0,212,170,0.15)' : 'rgba(255,71,87,0.15)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+}
+
+// ====== Toast ======
+function addToast(msg, type = 'success') {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className = `toast show ${type}`;
+  clearTimeout(t._timeout);
+  t._timeout = setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+// ====== Tab 切換 ======
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    btn.classList.add('active');
+    $(`tab${btn.dataset.tab.charAt(0).toUpperCase() + btn.dataset.tab.slice(1)}`).classList.add('active');
+  });
+});
+
+// ====== 商品選擇 ======
+document.getElementById('productGrid').addEventListener('click', e => {
+  const card = e.target.closest('.product-card');
+  if (!card) return;
+  document.querySelectorAll('.product-card').forEach(c => c.classList.remove('active'));
+  card.classList.add('active');
+  selectedProduct = parseInt(card.dataset.idx);
+  renderOrderPanel();
+});
+
+// ====== 啟動模擬 ======
+let simInterval;
+
+function startSim() {
+  simInterval = setInterval(stepPrices, 2000);
+}
+
+// resize chart
+window.addEventListener('resize', () => { setTimeout(updateChart, 100); });
+
+// init
+updateUI();
+setTimeout(() => { updateChart(); startSim(); }, 100);
+</script>
+</body>
+</html>

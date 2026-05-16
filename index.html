@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Quant Workspace — 系統總覽</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: #0a0e17;
+  color: #e0e6f0;
+  padding: 24px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+h1 {
+  font-size: 28px;
+  background: linear-gradient(135deg, #00d4aa, #00a8ff, #ffb700);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 4px;
+}
+.subtitle { color: #667; font-size: 14px; margin-bottom: 28px; }
+
+/* section */
+.section { margin-bottom: 28px; }
+.section h2 {
+  font-size: 16px; color: #8899aa; margin-bottom: 12px;
+  display: flex; align-items: center; gap: 8px;
+}
+.section h2::after { content: ''; flex:1; height:1px; background:#1e2a3a; }
+
+/* cards */
+.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:10px; }
+.card {
+  background:#121a2a; border:1px solid #1e2a3a; border-radius:10px;
+  padding:14px; position:relative; overflow:hidden;
+}
+.card .tag {
+  position:absolute; top:8px; right:8px; font-size:9px;
+  padding:2px 8px; border-radius:4px; background:#1a2a3a; color:#667;
+}
+.card .name { font-size:14px; font-weight:600; margin-bottom:2px; }
+.card .desc { font-size:11px; color:#667; margin-bottom:6px; }
+.card .stat { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; }
+.card .sublabel { font-size:10px; color:#667; margin-top:1px; }
+.badge { display:inline-block; font-size:9px; padding:2px 6px; border-radius:3px; margin-right:4px; }
+.badge-green { background:#00d4aa22; color:#00d4aa; }
+.badge-blue { background:#00a8ff22; color:#00a8ff; }
+.badge-gold { background:#ffb70022; color:#ffb700; }
+.badge-red { background:#ff475722; color:#ff4757; }
+
+/* architecture flow */
+.flow {
+  display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:16px; background:#121a2a; border-radius:10px; border:1px solid #1e2a3a;
+  font-size:12px;
+}
+.flow-node {
+  padding:8px 14px; border-radius:6px; background:#1a2a3a;
+  text-align:center; min-width:80px;
+}
+.flow-node .fn { font-size:11px; font-weight:600; }
+.flow-node .fs { font-size:9px; color:#667; }
+.flow-arrow { color:#667; font-size:16px; }
+.flow-highlight { border:1px solid #00d4aa44; background:#00d4aa11; }
+
+/* table */
+table { width:100%; border-collapse:collapse; font-size:12px; }
+th { color:#667; font-size:10px; text-transform:uppercase; text-align:left; padding:8px 6px; border-bottom:1px solid #1e2a3a; }
+td { padding:8px 6px; border-bottom:1px solid #152030; font-variant-numeric:tabular-nums; }
+tr:hover td { background:#121a2a66; }
+
+/* result box */
+.result-box {
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+  gap:8px; padding:12px; background:#121a2a; border:1px solid #1e2a3a;
+  border-radius:8px; margin-top:8px;
+}
+.result-item .rl { font-size:10px; color:#667; }
+.result-item .rv { font-size:18px; font-weight:700; }
+
+/* link buttons */
+.links { display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+.btn {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:10px 18px; border-radius:8px; text-decoration:none;
+  font-size:13px; font-weight:600; transition:.2s;
+}
+.btn-primary { background:#00d4aa; color:#0a0e17; }
+.btn-primary:hover { background:#00e8bb; transform:translateY(-1px); }
+.btn-secondary { background:#1e2a3a; color:#e0e6f0; }
+.btn-secondary:hover { background:#2a3a4a; }
+.btn-outline { border:1px solid #1e2a3a; color:#8899aa; background:transparent; }
+.btn-outline:hover { border-color:#00d4aa; color:#00d4aa; }
+
+/* responsive */
+@media (max-width:640px) {
+  body { padding:12px; }
+  .grid { grid-template-columns:1fr 1fr; }
+  .flow { font-size:10px; }
+  .flow-node { padding:6px 10px; min-width:60px; }
+}
+
+/* phase timeline */
+.timeline { position:relative; padding-left:20px; }
+.timeline::before {
+  content:''; position:absolute; left:6px; top:4px; bottom:4px;
+  width:2px; background:#1e2a3a;
+}
+.timeline-item { position:relative; padding:8px 0 8px 16px; }
+.timeline-item::before {
+  content:''; position:absolute; left:-16px; top:13px;
+  width:8px; height:8px; border-radius:50%;
+}
+.timeline-item.done::before { background:#00d4aa; }
+.timeline-item .tl-title { font-size:13px; }
+.timeline-item .tl-desc { font-size:11px; color:#667; }
+</style>
+</head>
+<body>
+
+<h1>🤖 AI Quant Workspace</h1>
+<div class="subtitle">AI 量化交易協作工作區 · 由 Manus + Claude Code 協作開發</div>
+
+<!-- Phase Timeline -->
+<div class="section">
+  <h2>📋 開發進度</h2>
+  <div class="timeline">
+    <div class="timeline-item done">
+      <div class="tl-title">Phase 1 — 基礎建設</div>
+      <div class="tl-desc">回測引擎 · Agent 介面 · 數據載入模組</div>
+    </div>
+    <div class="timeline-item done">
+      <div class="tl-title">Phase 2 — 投資委員會</div>
+      <div class="tl-desc">Momentum + Value + CIO 三 Agent 決策系統</div>
+    </div>
+    <div class="timeline-item done">
+      <div class="tl-title">Phase 3 — Agent 擴充 & Claude API</div>
+      <div class="tl-desc">ClaudeAgent · SentimentAgent · MacroAgent · 五 Agent 綜合決策</div>
+    </div>
+    <div class="timeline-item done">
+      <div class="tl-title">Phase 4 — 監控 & 優化</div>
+      <div class="tl-desc">批量回測 · 參數優化 · Telegram 即時推送</div>
+    </div>
+    <div class="timeline-item done" style="--dot:#ffb700;">
+      <div class="tl-title">🆕 自動投資系統</div>
+      <div class="tl-desc">Committee 驅動自動交易 · 模擬帳戶 · HTML 績效報表</div>
+    </div>
+  </div>
+</div>
+
+<!-- System Architecture -->
+<div class="section">
+  <h2>🏗️ 系統架構</h2>
+  <div class="flow">
+    <div class="flow-node flow-highlight"><div class="fn">📊 市場數據</div><div class="fs">yfinance</div></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node"><div class="fn">📈 Momentum</div><div class="fs">RSI+MACD+SMA</div></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node"><div class="fn">💰 Value</div><div class="fs">DeepSeek/Rule</div></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node"><div class="fn">🧠 Claude</div><div class="fs">AI 分析</div></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node"><div class="fn">📰 Sentiment</div><div class="fs">情緒面</div></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node"><div class="fn">🌍 Macro</div><div class="fs">總經指標</div></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node flow-highlight"><div class="fn">🎯 CIO</div><div class="fs">加權共識</div></div>
+    <div class="flow-arrow">→</div>
+    <div class="flow-node flow-highlight"><div class="fn">⚙️ 回測引擎</div><div class="fs">向量化計算</div></div>
+  </div>
+</div>
+
+<!-- Agent Cards -->
+<div class="section">
+  <h2>🤖 Agent 陣容（權重）</h2>
+  <div class="grid">
+    <div class="card">
+      <span class="tag">30%</span>
+      <div class="name">MomentumAgent</div>
+      <div class="desc">RSI(14) + MACD + SMA(50)<br>技術面動量策略</div>
+      <div class="stat" style="color:#00d4aa;">144</div>
+      <div class="sublabel">信號數 (AAPL 2024)</div>
+    </div>
+    <div class="card">
+      <span class="tag">25%</span>
+      <div class="name">ValueAgent</div>
+      <div class="desc">DeepSeek API / 超買超賣規則<br>價值投資</div>
+      <div class="stat" style="color:#00a8ff;">40</div>
+      <div class="sublabel">信號數 (AAPL 2024)</div>
+    </div>
+    <div class="card">
+      <span class="tag">20%</span>
+      <div class="name">ClaudeAgent</div>
+      <div class="desc">Claude Opus 4.7<br>AI 全方位分析</div>
+      <div class="stat" style="color:#ffb700;">6</div>
+      <div class="sublabel">信號數 (AAPL 2024)</div>
+    </div>
+    <div class="card">
+      <span class="tag">15%</span>
+      <div class="name">SentimentAgent</div>
+      <div class="desc">新聞情緒分析<br>DeepSeek / Fallback</div>
+      <div class="stat" style="color:#ff9ff3;">—</div>
+      <div class="sublabel">需 API Key</div>
+    </div>
+    <div class="card">
+      <span class="tag">10%</span>
+      <div class="name">MacroAgent</div>
+      <div class="desc">VIX + SPY + TLT + DXY<br>宏觀經濟指標</div>
+      <div class="stat" style="color:#54a0ff;">5</div>
+      <div class="sublabel">宏觀因子</div>
+    </div>
+    <div class="card" style="border-color:#ffb70044;">
+      <span class="tag">CIO</span>
+      <div class="name">🧠 CIO 決策</div>
+      <div class="desc">加權平均 → 門檻過濾 → 狀態機<br>門檻: ±0.25</div>
+      <div class="stat" style="color:#ffb700;">3</div>
+      <div class="sublabel">共識信號 (AAPL 2024)</div>
+    </div>
+  </div>
+</div>
+
+<!-- Backtest Results -->
+<div class="section">
+  <h2>📊 回測績效</h2>
+  <table>
+    <thead>
+      <tr><th>商品</th><th>期間</th><th>槓桿</th><th>報酬率</th><th>Max DD</th><th>Sharpe</th><th>交易</th><th>勝率</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>AAPL</strong></td>
+        <td>2024 全年</td><td>1×</td>
+        <td style="color:#00d4aa;font-weight:700;">+48.77%</td>
+        <td style="color:#ff4757;">-11.75%</td>
+        <td>2.01</td><td>1</td><td>100%</td>
+      </tr>
+      <tr>
+        <td><strong>AAPL</strong></td>
+        <td>2024 全年</td><td>2.5×</td>
+        <td style="color:#00d4aa;font-weight:700;">+121.9%</td>
+        <td style="color:#ff4757;">-29.38%</td>
+        <td>2.01</td><td>1</td><td>100%</td>
+      </tr>
+      <tr>
+        <td><strong>2330 台積電</strong></td>
+        <td>2025→現在</td><td>1×</td>
+        <td style="color:#00d4aa;font-weight:700;">+11.23%</td>
+        <td style="color:#ff4757;">-15.70%</td>
+        <td>1.45</td><td>2</td><td>50%</td>
+      </tr>
+      <tr>
+        <td><strong>2330 台積電</strong></td>
+        <td>2025→現在</td><td>2.5×</td>
+        <td style="color:#00d4aa;font-weight:700;">+28.08%</td>
+        <td style="color:#ff4757;">-39.26%</td>
+        <td>1.45</td><td>2</td><td>50%</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Auto Trade -->
+<div class="section">
+  <h2>🔄 自動投資系統 — auto_trade.py</h2>
+  <div class="result-box">
+    <div class="result-item">
+      <div class="rl">初始資金</div>
+      <div class="rv" style="color:#8899aa;">NT$ 400,000</div>
+    </div>
+    <div class="result-item">
+      <div class="rl">最佳報酬 (AAPL 2.5×)</div>
+      <div class="rv" style="color:#00d4aa;">+121.9%</div>
+    </div>
+    <div class="result-item">
+      <div class="rl">最差 MDD</div>
+      <div class="rv" style="color:#ff4757;">-39.26%</div>
+    </div>
+    <div class="result-item">
+      <div class="rl">總計交易</div>
+      <div class="rv" style="color:#00a8ff;">3</div>
+    </div>
+    <div class="result-item">
+      <div class="rl">最佳 Sharpe</div>
+      <div class="rv" style="color:#ffb700;">2.01</div>
+    </div>
+  </div>
+  <div style="font-size:12px;color:#667;margin-top:8px;line-height:1.8;">
+    <code style="background:#121a2a;padding:2px 6px;border-radius:3px;">python auto_trade.py --ticker AAPL --capital 400000 --leverage 2.5</code>
+    <br>
+    <code style="background:#121a2a;padding:2px 6px;border-radius:3px;">python auto_trade.py --ticker 2330 --capital 400000 --leverage 2.5</code>
+    <br>
+    <code style="background:#121a2a;padding:2px 6px;border-radius:3px;">python auto_trade.py --ticker TX --capital 400000 --future --leverage 10</code>
+  </div>
+</div>
+
+<!-- Quick Links -->
+<div class="section">
+  <h2>🔗 快速連結</h2>
+  <div class="links">
+    <a href="trading_sim.html" class="btn btn-primary">🎮 交易模擬器</a>
+    <a href="run_committee.py" class="btn btn-secondary">📊 投資委員會</a>
+    <a href="auto_trade.py" class="btn btn-secondary">🤖 自動投資</a>
+    <a href="run_batch.py" class="btn btn-outline">📦 批量回測</a>
+    <a href="run_optimize.py" class="btn btn-outline">⚡ 參數優化</a>
+    <a href="telegram_monitor.py" class="btn btn-outline">📱 Telegram 監控</a>
+    <a href="https://github.com/aitree414/ai-quant-workspace" class="btn btn-outline">📂 GitHub</a>
+  </div>
+</div>
+
+<!-- File Inventory -->
+<div class="section">
+  <h2>📁 專案檔案</h2>
+  <table>
+    <thead><tr><th>檔案</th><th>功能</th><th>Phase</th></tr></thead>
+    <tbody>
+      <tr><td><code>backtesting/engine.py</code></td><td>向量化回測引擎</td><td><span class="badge badge-green">P1</span></td></tr>
+      <tr><td><code>utils/data_loader.py</code></td><td>yfinance 數據載入 + Parquet 快取</td><td><span class="badge badge-green">P1</span></td></tr>
+      <tr><td><code>strategies/agents/base_agent.py</code></td><td>BaseAgent ABC + Signal 資料結構</td><td><span class="badge badge-green">P1</span></td></tr>
+      <tr><td><code>strategies/agents/momentum_agent.py</code></td><td>動量策略 (RSI+MACD+SMA)</td><td><span class="badge badge-blue">P2</span></td></tr>
+      <tr><td><code>strategies/agents/value_agent.py</code></td><td>價值投資 (DeepSeek/Fallback)</td><td><span class="badge badge-blue">P2</span></td></tr>
+      <tr><td><code>strategies/agents/cio_agent.py</code></td><td>CIO 加權共識決策引擎</td><td><span class="badge badge-blue">P2</span></td></tr>
+      <tr><td><code>strategies/agents/claude_agent.py</code></td><td>Claude API AI 分析</td><td><span class="badge badge-gold">P3</span></td></tr>
+      <tr><td><code>strategies/agents/sentiment_agent.py</code></td><td>新聞情緒分析</td><td><span class="badge badge-gold">P3</span></td></tr>
+      <tr><td><code>strategies/agents/macro_agent.py</code></td><td>宏觀經濟指標分析</td><td><span class="badge badge-gold">P3</span></td></tr>
+      <tr><td><code>strategies/committee.py</code></td><td>五 Agent 投資委員會主程式</td><td><span class="badge badge-gold">P3</span></td></tr>
+      <tr><td><code>run_batch.py</code></td><td>批量回測系統</td><td><span class="badge badge-red">P4</span></td></tr>
+      <tr><td><code>run_optimize.py</code></td><td>網格參數優化</td><td><span class="badge badge-red">P4</span></td></tr>
+      <tr><td><code>telegram_monitor.py</code></td><td>Telegram Bot 即時監控</td><td><span class="badge badge-red">P4</span></td></tr>
+      <tr><td><code>trading_sim.html</code></td><td>互動交易模擬器 (瀏覽器)</td><td><span class="badge badge-gold">—</span></td></tr>
+      <tr><td><code>auto_trade.py</code></td><td>AI 自動投資系統</td><td><span class="badge badge-gold">🆕</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div style="text-align:center;padding:24px 0;color:#667;font-size:12px;">
+  AI Quant Workspace · 由 Manus + Claude Code 協作開發 · 2026
+</div>
+
+</body>
+</html>
