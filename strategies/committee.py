@@ -28,7 +28,8 @@ from .agents import (
     MacroAgent,
     Signal,
 )
-from .agents.cio_agent import CIOAgent
+from .agents.cio_agent import CIOAgent, WeightTracker
+from .trend_filter import TrendFilter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -105,6 +106,9 @@ def run_committee(
     use_claude: bool = True,
     use_macro: bool = True,
     use_sentiment: bool = True,
+    use_trend_filter: bool = True,
+    use_dynamic_weights: bool = False,
+    weight_tracker: Optional[WeightTracker] = None,
 ) -> BacktestResult:
     """Run the full investment committee pipeline.
 
@@ -129,6 +133,17 @@ def run_committee(
 
     data.attrs["symbol"] = ticker
     logger.info("Loaded %d bars for %s", len(data), ticker)
+
+    # --- Step 1.5: Trend filter (multi-timeframe gate) ---
+    trend_result = None
+    if use_trend_filter:
+        tf = TrendFilter()
+        trend_result = tf.evaluate(data)
+        logger.info(
+            "TrendFilter: %s (MA50=%.2f, slope=%.4f, bars=%d)",
+            trend_result.trend_direction, trend_result.weekly_ma50,
+            trend_result.weekly_ma50_slope, trend_result.weekly_bars,
+        )
 
     # --- Step 2: Generate agent signals ---
     momentum = MomentumAgent()
@@ -171,6 +186,15 @@ def run_committee(
         except Exception as exc:
             logger.error("ClaudeAgent failed: %s — proceeding without it", exc)
 
+    # --- Trend filter gate: override buy signals if weekly trend is down ---
+    if trend_result is not None and not trend_result.trend_allowed and trend_result.weekly_bars >= 30:
+        tf = TrendFilter()
+        before = sum(len(v) for v in agent_signals.values())
+        for name in agent_signals:
+            agent_signals[name] = tf.apply_filter(agent_signals[name], trend_result)
+        after = sum(1 for v in agent_signals.values() for s in v if s.action == "buy")
+        logger.info("TrendFilter: %d → %d buy signals after weekly trend gate", before, after)
+
     # --- Step 3: CIO consensus ---
     # Custom weights for the 5-agent committee
     weights = {
@@ -181,7 +205,11 @@ def run_committee(
         "macro-agent": 0.10,
     }
 
-    cio = CIOAgent(weights=weights)
+    cio = CIOAgent(
+        weights=weights,
+        use_dynamic_weights=use_dynamic_weights,
+        weight_tracker=weight_tracker,
+    )
     consensus = cio.synthesise(agent_signals, data.index, symbol=ticker)
     _fill_prices(consensus, data)
     logger.info("--- CIO ---")
@@ -196,6 +224,32 @@ def run_committee(
         commission=commission,
     )
     result = engine.run(data, position)
+
+    # --- Record agent outcomes for dynamic weight adjustment ---
+    if use_dynamic_weights and weight_tracker and result.trades:
+        # Evaluate each agent's signal performance over the backtest
+        for agent_name, sigs in agent_signals.items():
+            for sig in sigs:
+                try:
+                    ts = pd.Timestamp(sig.timestamp)
+                    if ts in data.index:
+                        idx = data.index.get_loc(ts)
+                        # Forward return over the next 5 bars
+                        lookahead = min(idx + 5, len(data) - 1)
+                        fwd_return = (
+                            (float(data.iloc[lookahead]["Close"]) - float(data.iloc[idx]["Close"]))
+                            / float(data.iloc[idx]["Close"])
+                        )
+                        weight_tracker.record_signal_outcome(
+                            agent_name=agent_name,
+                            signal_action=sig.action,
+                            signal_timestamp=sig.timestamp,
+                            forward_return=fwd_return,
+                            confidence=sig.confidence,
+                        )
+                except (ValueError, TypeError, KeyError, IndexError):
+                    continue
+        logger.info("WeightTracker: recorded outcomes for %d agents", len(agent_signals))
 
     return result
 
@@ -222,12 +276,16 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--no-claude", action="store_true", help="Disable ClaudeAgent")
     parser.add_argument("--no-macro", action="store_true", help="Disable MacroAgent")
     parser.add_argument("--no-sentiment", action="store_true", help="Disable SentimentAgent")
+    parser.add_argument("--no-trend-filter", action="store_true", help="Disable weekly trend filter")
+    parser.add_argument("--dynamic-weights", action="store_true", help="Enable dynamic weight adjustment")
     parser.add_argument(
         "--claude-api-key", default=None,
         help="Anthropic API key (default: ANTHROPIC_API_KEY env var)",
     )
 
     args = parser.parse_args(argv)
+
+    wt = WeightTracker() if args.dynamic_weights else None
 
     result = run_committee(
         ticker=args.ticker,
@@ -240,6 +298,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         use_claude=not args.no_claude,
         use_macro=not args.no_macro,
         use_sentiment=not args.no_sentiment,
+        use_trend_filter=not args.no_trend_filter,
+        use_dynamic_weights=args.dynamic_weights,
+        weight_tracker=wt,
         claude_api_key=args.claude_api_key,
     )
 

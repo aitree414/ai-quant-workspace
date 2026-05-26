@@ -28,7 +28,9 @@ from typing import Optional
 import pandas as pd
 
 from strategies.agents import MomentumAgent, ValueAgent, FlowAgent, Signal
-from strategies.agents.cio_agent import CIOAgent
+from strategies.agents.cio_agent import CIOAgent, WeightTracker
+from strategies.trend_filter import TrendFilter
+from strategies.sizing import KellySizer
 from utils.data_loader import load_single
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -43,6 +45,7 @@ DEFAULT_WATCHLIST = [
     {"ticker": "AAPL", "name": "Apple",  "leverage": 2.0, "market": "US", "stop_loss_pct": -10.0, "take_profit_pct": 25.0},
     {"ticker": "TSLA", "name": "Tesla",  "leverage": 2.0, "market": "US", "stop_loss_pct": -15.0, "take_profit_pct": 35.0},
     {"ticker": "TX",  "name": "台指期", "leverage": 10.0, "market": "TW", "yahoo_ticker": "^TWII", "stop_loss_pct": -5.0, "take_profit_pct": 15.0, "max_qty": 2},
+    {"ticker": "2327", "name": "國巨",   "leverage": 2.5, "market": "TW", "stop_loss_pct": -10.0, "take_profit_pct": 30.0},
 ]
 
 
@@ -81,18 +84,16 @@ class PaperPortfolio:
             pass
 
     def save(self) -> None:
-        PORTFOLIO_FILE.write_text(
-            json.dumps({
-                "initial": self.initial,
-                "cash": self.cash,
-                "holdings": self.holdings,
-                "trades": self.trades,
-                "equity_history": self.equity_history,
-                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "signals_cache": self.signals_cache,
-            }, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        from auto_trader import atomic_write_json
+        atomic_write_json(PORTFOLIO_FILE, {
+            "initial": self.initial,
+            "cash": self.cash,
+            "holdings": self.holdings,
+            "trades": self.trades,
+            "equity_history": self.equity_history,
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "signals_cache": self.signals_cache,
+        })
 
     def reset(self) -> None:
         self.cash = self.initial
@@ -128,8 +129,13 @@ class PaperPortfolio:
     def return_pct(self) -> float:
         return ((self.total_equity / self.initial) - 1) * 100
 
-    def buy(self, ticker: str, price: float, leverage: float, name: str = "", market: str = "TW", max_qty: int = 0) -> None:
-        """以融資買入。"""
+    def buy(self, ticker: str, price: float, leverage: float, name: str = "", market: str = "TW", max_qty: int = 0, kelly_qty: int = 0) -> None:
+        """以融資買入。
+
+        Args:
+            kelly_qty: If > 0, use this as the exact quantity (Kelly-calculated).
+                       If 0, use full available cash (legacy behavior).
+        """
         if ticker in self.holdings:
             print(f"  ⏭️  {ticker} 已有持倉，跳過")
             return
@@ -139,10 +145,20 @@ class PaperPortfolio:
         # 台股 1000 股為單位，美股/期貨 1 單位
         futures_tickers = {"TX", "MTX", "FITX", "FIMTX"}
         lot_size = 1 if ticker in futures_tickers else (1000 if market == "TW" else 1)
-        max_shares = int(self.cash / (cost_per_share * lot_size)) * lot_size
-        max_shares = max(max_shares, 0)
-        if max_qty > 0:
-            max_shares = min(max_shares, max_qty)
+
+        if kelly_qty > 0:
+            # Kelly-sized position
+            max_shares = (kelly_qty // lot_size) * lot_size
+            if max_shares < lot_size:
+                print(f"  ⏭️  {ticker} Kelly 建議量不足 1 張，跳過")
+                return
+        else:
+            # Legacy: use full available cash
+            max_shares = int(self.cash / (cost_per_share * lot_size)) * lot_size
+            max_shares = max(max_shares, 0)
+            if max_qty > 0:
+                max_shares = min(max_shares, max_qty)
+
         if max_shares < lot_size:
             print(f"  ❌ {ticker} 資金不足 (需 NT${cost_per_share * lot_size:,.0f}/{lot_size}股)")
             return
@@ -180,6 +196,18 @@ class PaperPortfolio:
 
         r = (pnl / h["margin_used"]) * 100 if h["margin_used"] > 0 else 0
         print(f"  📤 SELL {ticker} @ {price:,.0f} 損益 {pnl:+,.0f} ({r:+.2f}%)")
+
+        # Record signal outcome if we have cached signals for this ticker
+        if ticker in self.signals_cache:
+            cached = self.signals_cache[ticker]
+            wt = WeightTracker()
+            wt.record_signal_outcome(
+                agent_name="paper_trade",
+                signal_action=cached.get("action", "hold"),
+                signal_timestamp=datetime.now().isoformat(),
+                forward_return=r / 100.0,
+                confidence=cached.get("confidence", 0.5),
+            )
 
         self.trades.append({
             "time": datetime.now().strftime("%Y-%m-%d %H:%M"),
@@ -298,11 +326,11 @@ class PaperPortfolio:
         return proceeds
 
     def auto_reduce_concentration(self, prices: dict[str, float], target_pct: float = 40.0) -> list[str]:
-        """集中度超過 target_pct 時自動減倉最大的標的。回傳風控動作紀錄。"""
+        """集中度超過 target_pct 時自動減倉最大標的直到達標。"""
         actions: list[str] = []
         if self.position_count < 2:
             return actions
-        for _ in range(5):
+        for _ in range(3):
             max_pct = self.max_concentration
             if max_pct <= target_pct or self.position_count < 2:
                 break
@@ -313,17 +341,22 @@ class PaperPortfolio:
             cur_val = h.get("current_value", h["entry_price"] * h["qty"])
             price = prices.get(ticker, h["entry_price"])
             lot_size = 1000 if h.get("market") == "TW" else 1
-            # 超標金額
-            excess_val = cur_val - (target_pct / 100) * exp
-            if excess_val <= 0:
+            # 目標值: 賣到該標的佔比 <= target_pct
+            # (cur_val - sell) / (exp - sell) <= target_pct/100
+            need_sell = (cur_val - (target_pct / 100) * exp) / (1 - target_pct / 100)
+            if need_sell <= 0:
                 break
-            # 賣超標的 60%，儘量一次到位
-            qty_to_sell = max(int(excess_val * 0.6 / price / lot_size) * lot_size, lot_size) if lot_size else max(int(excess_val * 0.6 / price), 1)
+            if lot_size:
+                qty_to_sell = int(need_sell / price / lot_size + 0.5) * lot_size  # 四捨五入到整張
+                qty_to_sell = max(qty_to_sell, lot_size)
+            else:
+                qty_to_sell = max(int(need_sell / price + 0.5), 1)
+            # 絕不超過 60% 倉位
+            qty_to_sell = min(qty_to_sell, int(h["qty"] * 0.6 / lot_size) * lot_size or qty_to_sell)
             if qty_to_sell >= h["qty"]:
-                # 全賣才能解決 → 賣一半
-                qty_to_sell = max(h["qty"] // 2, lot_size)
-                if qty_to_sell >= h["qty"]:
-                    break  # 只有 1 lot 賣不掉
+                qty_to_sell = max(int(h["qty"] * 0.5 / lot_size) * lot_size, lot_size)
+            if qty_to_sell <= 0 or qty_to_sell >= h["qty"]:
+                break
             self.reduce_position(ticker, qty_to_sell, price)
             actions.append(f"集中度 {max_pct:.0f}% > {target_pct:.0f}%，減倉 {ticker} ×{qty_to_sell}")
         return actions
@@ -413,7 +446,13 @@ def run_analysis(
 
     data.attrs["symbol"] = ticker
 
-    # 只取最近 N 天分析
+    # Apply trend filter (weekly MA50 gate)
+    tf = TrendFilter()
+    trend = tf.evaluate(data)
+    if not trend.trend_allowed and trend.weekly_bars >= 30:
+        print(f"  {ticker:<8} 📉 週線趨勢向下 (MA50={trend.weekly_ma50:.0f}) — 濾網啟動")
+
+    # Only use recent data for analysis
     recent = data.tail(lookback_days)
 
     # 執行 Agent
@@ -430,11 +469,17 @@ def run_analysis(
         "flow-agent": flow_sigs,
     }
 
+    # Apply trend filter gate
+    if not trend.trend_allowed and trend.weekly_bars >= 30:
+        for name in agent_signals:
+            agent_signals[name] = tf.apply_filter(agent_signals[name], trend)
+
     weights = {"momentum-agent": 0.50, "value-agent": 0.30, "flow-agent": 0.20}
     cio = CIOAgent(weights=weights)
     consensus = cio.synthesise(agent_signals, recent.index, symbol=ticker)
 
     current_price = float(recent.iloc[-1]["Close"])
+    prev_close = float(recent.iloc[-2]["Close"]) if len(recent) >= 2 else current_price
 
     # 找最近（最後一個）信號
     latest_action = "hold"
@@ -452,6 +497,7 @@ def run_analysis(
         "ticker": ticker,
         "name": name or ticker,
         "price": current_price,
+        "entry_price": prev_close,
         "action": latest_action,
         "confidence": latest_conf,
         "momentum_signals": len(mom_sigs),
@@ -501,6 +547,7 @@ def cmd_update(watchlist: list[dict], fallback: bool = True) -> None:
     print(f"{'='*50}")
 
     prices: dict[str, float] = {}
+    entry_prices: dict[str, float] = {}
     new_buys: list[dict] = []
     new_sells: list[dict] = []
 
@@ -512,6 +559,7 @@ def cmd_update(watchlist: list[dict], fallback: bool = True) -> None:
             continue
         print_analysis(result)
         prices[ticker] = result["price"]
+        entry_prices[ticker] = result.get("entry_price", result["price"])
         pf.signals_cache[ticker] = {
             "action": result["action"],
             "confidence": result["confidence"],
@@ -553,10 +601,36 @@ def cmd_update(watchlist: list[dict], fallback: bool = True) -> None:
     # 執行買入（期貨優先，確保保證金足夠）
     futures_tickers = {"TX", "MTX", "FITX", "FIMTX"}
     new_buys.sort(key=lambda x: (0 if x[0] in futures_tickers else 1, x[1]))
+
+    # Kelly-sizer for position sizing
+    kelly = KellySizer()
+    kelly_result = None
+    if len(pf.trades) >= 5:
+        kelly_result = kelly.estimate_from_history(pf.trades, pf.total_equity)
+
     print(f"\n  📥 買入信號:")
     for ticker, price, leverage in new_buys:
         info = next((i for i in watchlist if i["ticker"] == ticker), {})
-        pf.buy(ticker, price, leverage, name=info.get("name", ""), market=info.get("market", "TW"), max_qty=info.get("max_qty", 0))
+        entry_price = entry_prices.get(ticker, price)
+
+        # Kelly-based position sizing
+        qty = 0
+        if kelly_result and kelly_result.dollar_amount > 0:
+            pos = kelly.calculate_stock_position(
+                kelly_result, pf.total_equity, entry_price,
+                market=info.get("market", "TW"),
+                max_qty=info.get("max_qty", 0),
+            )
+            qty = pos["qty"]
+
+        pf.buy(ticker, entry_price, leverage,
+               name=info.get("name", ""),
+               market=info.get("market", "TW"),
+               max_qty=info.get("max_qty", 0),
+               kelly_qty=qty)
+        # 買入後立即用今日價格更新市值，產生即時損益
+        if ticker in pf.holdings:
+            pf.holdings[ticker]["current_value"] = price * pf.holdings[ticker]["qty"]
 
     # 風控：集中度超過 40% 自動減倉
     risk_actions = pf.auto_reduce_concentration(prices, target_pct=40.0)
